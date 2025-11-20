@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจดมิเตอร์น้ำหมู่บ้านเผ่าไทย</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- React & Libraries (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/lucide-react@0.263.1/dist/lucide-react.umd.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f3f4f6; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fade-in 0.3s ease-out; }
+        @keyframes scale-up { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .animate-scale-up { animation: scale-up 0.2s ease-out; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "recharts": "https://aistudiocdn.com/recharts@^3.4.1",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- Library Destructuring ---
+        const { useState, useEffect, useMemo } = React;
+        const { 
+            BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip: RechartsTooltip, Legend, ResponsiveContainer 
+        } = Recharts;
+        const { 
+            LayoutDashboard, Droplet, UserPlus, Receipt, Menu, X, LogOut, Wifi, WifiOff, 
+            CloudLightning, Users, Wallet, PiggyBank, AlertCircle, TrendingUp, Activity,
+            Calculator, Save, History: HistoryIcon, User, FileText, CheckCircle, ExternalLink,
+            Trash2, Plus, Settings, Search, Edit, AlertTriangle, Droplets
+        } = LucideReact;
+
+        // --- API SERVICE ---
+        const BACKEND_URL = "https://script.google.com/macros/s/AKfycbw89Tnt9tBNXhHJgekHOe08jiYhzGR3_4ev74u0Y48y1BT8VsciV3olvWEtiOsu7N19/exec";
+        
+        const isGAS = typeof window !== 'undefined' && window.google && window.google.script;
+        const isExternalAPI = !isGAS && BACKEND_URL !== "";
+
+        const runGAS = (funcName, ...args) => {
+            return new Promise((resolve, reject) => {
+                if (!isGAS) return reject(new Error("GAS not found"));
+                window.google.script.run
+                    .withSuccessHandler(resolve)
+                    .withFailureHandler(reject)
+                    [funcName](...args);
+            });
+        };
+
+        const runExternalAPI = async (action, payload) => {
+            const response = await fetch(BACKEND_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ action, payload })
+            });
+            const json = await response.json();
+            if (json.status === 'error') throw new Error(json.message);
+            return json.data;
+        };
+
+        const execute = async (action, payload, mockData) => {
+            if (isGAS) return runGAS(action, payload);
+            if (isExternalAPI) return runExternalAPI(action, payload);
+            console.log(`[Mock] ${action}`, payload);
+            return new Promise(resolve => setTimeout(() => resolve(mockData), 800));
+        };
+
+        // Mock Data
+        let mockMembers = [
+            { id: '1', memberId: 'M001', name: 'นายสมชาย ใจดี', houseNo: '1/1', specialRate: false, payMaintenance: true, currentMeter: 1250, lastMeterDate: '01/02/2025' },
+            { id: '2', memberId: 'M002', name: 'นางสาวใจงาม รักสงบ', houseNo: '2/2', specialRate: true, payMaintenance: false, currentMeter: 500, lastMeterDate: '01/02/2025' }
+        ];
+        const mockExpenses = [
+            { id: '1', date: '2025-02-15', type: 'ค่าไฟฟ้าโรงสูบน้ำดิบ', amount: 1500 }
+        ];
+
+        const api = {
+            getMembers: async () => {
+                const rawData = await execute('getMembers', undefined, mockMembers);
+                return rawData.map(m => ({
+                    id: m.memberId, memberId: m.memberId, name: m.name, houseNo: m.houseNo,
+                    specialRate: m.specialRate, payMaintenance: m.payMaintenance, currentMeter: 0, lastMeterDate: ''
+                }));
+            },
+            getMemberData: async (memberId) => {
+                const mockMember = mockMembers.find(m => m.memberId === memberId);
+                const mockResponse = mockMember ? { ...mockMember, history: [], prevMeter: mockMember.currentMeter, prevDate: '01/02/2025' } : null;
+                const data = await execute('getMemberData', memberId, mockResponse);
+                const history = (data.history || []).map((h, i) => ({
+                    id: `${memberId}-${i}`, memberId, prevMeter: 0, currentMeter: parseInt(h.meter),
+                    usage: h.usage, waterCost: h.cost, maintenanceFee: 0, totalCost: h.cost, date: h.date
+                }));
+                return {
+                    id: data.memberId, memberId: data.memberId, name: data.name, houseNo: data.houseNo,
+                    specialRate: data.specialRate, payMaintenance: data.payMaintenance,
+                    currentMeter: parseInt(data.prevMeter) || 0, lastMeterDate: data.prevDate,
+                    history, prevMeter: parseInt(data.prevMeter) || 0, prevDate: data.prevDate
+                };
+            },
+            addMember: async (member) => {
+                if (!isGAS && !isExternalAPI) mockMembers.push({ ...member, id: Math.random().toString() });
+                return execute('addNewMember', member, {});
+            },
+            updateMember: async (member) => {
+                if (!isGAS && !isExternalAPI) {
+                    const idx = mockMembers.findIndex(m => m.memberId === member.memberId);
+                    if (idx !== -1) mockMembers[idx] = { ...mockMembers[idx], ...member };
+                }
+                return execute('updateMember', member, {});
+            },
+            deleteMember: async (memberId) => {
+                if (!isGAS && !isExternalAPI) {
+                    mockMembers = mockMembers.filter(m => m.memberId !== memberId);
+                }
+                return execute('deleteMember', memberId, {});
+            },
+            getExpenses: async (monthYear) => {
+                const data = await execute('getExpenses', monthYear, mockExpenses);
+                return data.map((e, i) => ({ id: `exp-${i}`, date: e.date, type: e.type, amount: e.amount }));
+            },
+            addExpenses: async (newExpenses) => {
+                for (const expense of newExpenses) await execute('saveExpense', expense, {});
+            },
+            saveAndGenerateBill: async (record) => execute('saveAndGenerateBill', record, "https://example.com/mock.pdf"),
+            getBillHistory: async (memberId) => execute('getBillHistory', memberId, [{ id: '1', name: 'Receipt_1', url: '#', date: '01/01/2025' }]),
+            getDashboardData: async (monthYear) => {
+                const data = await execute('getDashboardData', monthYear, {
+                    currentMonthCost: 0, currentMonthUsage: 0, currentMonthMemberCount: 0, 
+                    adminFee: 0, currentMonthExpenses: 0, reserveFund: 0, cumulativeReserveFund: 0, monthlyData: []
+                });
+                return {
+                    totalCost: data.currentMonthCost, totalUsage: data.currentMonthUsage,
+                    memberCount: data.currentMonthMemberCount, adminFee: data.adminFee,
+                    totalExpenses: data.currentMonthExpenses, reserveFund: data.reserveFund,
+                    cumulativeReserveFund: data.cumulativeReserveFund,
+                    monthlyData: (data.monthlyData || []).map(m => ({
+                        month: m.month, cost: m.cost, expenses: m.expenses, usage: m.usage
+                    }))
+                };
+            }
+        };
+
+        // --- COMPONENTS ---
+
+        const StatCard = ({ icon, color, label, value, subValue }) => (
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 flex items-center transition hover:shadow-md">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 ${color}`}>
+                    {icon}
+                </div>
+                <div>
+                    <p className="text-sm text-gray-500 font-medium">{label}</p>
+                    <p className="text-xl font-bold text-gray-800">{value}</p>
+                    <p className="text-xs text-gray-400 mt-1">{subValue}</p>
+                </div>
+            </div>
+        );
+
+        const Dashboard = () => {
+            const [loading, setLoading] = useState(true);
+            const [selectedMonth, setSelectedMonth] = useState(() => {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const [stats, setStats] = useState(null);
+            const [expenses, setExpenses] = useState([]);
+
+            useEffect(() => { fetchData(); }, [selectedMonth]);
+
+            const fetchData = async () => {
+                setLoading(true);
+                try {
+                    const [dashData, expData] = await Promise.all([
+                        api.getDashboardData(selectedMonth),
+                        api.getExpenses(selectedMonth)
+                    ]);
+                    setStats(dashData);
+                    setExpenses(expData);
+                } catch (error) { console.error(error); } 
+                finally { setLoading(false); }
+            };
+
+            if (loading && !stats) return <div className="flex justify-center items-center h-96 text-blue-600"><Activity className="animate-spin mr-2" /> กำลังโหลดข้อมูล...</div>;
+            if (!stats) return null;
+
+            const reservePercentage = Math.min((stats.reserveFund / 40000) * 100, 100).toFixed(1);
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-4 md:mb-0">ภาพรวมระบบประปา</h2>
+                        <div className="flex items-center space-x-4">
+                            <span className="text-gray-600 font-medium">เลือกเดือน:</span>
+                            <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-gray-700" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard icon={<Droplets className="w-6 h-6 text-blue-600" />} color="bg-blue-100" label="ยอดค่าน้ำเดือนนี้" value={`${stats.totalCost.toLocaleString()} บาท`} subValue="รายรับหลัก" />
+                        <StatCard icon={<Activity className="w-6 h-6 text-green-600" />} color="bg-green-100" label="ปริมาณน้ำที่ใช้" value={`${stats.totalUsage.toLocaleString()} ลบ.ม.`} subValue="ปริมาณการใช้งานรวม" />
+                        <StatCard icon={<Users className="w-6 h-6 text-purple-600" />} color="bg-purple-100" label="สมาชิกที่ใช้งาน" value={`${stats.memberCount} คน`} subValue="ผู้ใช้น้ำในเดือนนี้" />
+                        <StatCard icon={<Wallet className="w-6 h-6 text-yellow-600" />} color="bg-yellow-100" label="ค่าผู้ดูแล (25%)" value={`${stats.adminFee.toLocaleString()} บาท`} subValue="หักจากยอดค่าน้ำ" />
+                        <StatCard icon={<AlertCircle className="w-6 h-6 text-red-600" />} color="bg-red-100" label="รายจ่ายอื่นๆ" value={`${stats.totalExpenses.toLocaleString()} บาท`} subValue="ค่าไฟ, ค่าซ่อมแซม ฯลฯ" />
+                        <StatCard icon={<PiggyBank className="w-6 h-6 text-teal-600" />} color="bg-teal-100" label="ยอดกองกลางสะสม" value={`${stats.cumulativeReserveFund.toLocaleString()} บาท`} subValue="เงินคงเหลือทั้งหมด" />
+                    </div>
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                        <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center">
+                                <div className="p-3 bg-indigo-100 rounded-full mr-4"><TrendingUp className="w-6 h-6 text-indigo-600" /></div>
+                                <div><p className="text-sm text-gray-500">ยอดเงินเข้ากองกลางเดือนนี้</p><h3 className="text-2xl font-bold text-gray-800">{stats.reserveFund.toLocaleString()} บาท</h3></div>
+                            </div>
+                            <div className="text-right"><p className="text-sm font-medium text-indigo-600">{reservePercentage}% ของเป้าหมาย</p><p className="text-xs text-gray-400">เป้าหมาย: 40,000 บาท</p></div>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-indigo-600 h-3 rounded-full transition-all duration-500 ease-out" style={{ width: `${reservePercentage}%` }}></div></div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-6">สถิติย้อนหลัง 6 เดือน</h3>
+                            <div className="h-80">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={stats.monthlyData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} dy={10} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} />
+                                        <RechartsTooltip cursor={{fill: '#f9fafb'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}} />
+                                        <Legend wrapperStyle={{paddingTop: '20px'}} />
+                                        <Bar dataKey="cost" name="ยอดค่าน้ำ" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={30} />
+                                        <Bar dataKey="expenses" name="รายจ่ายรวม" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={30} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">รายจ่ายประจำเดือน</h3>
+                            <div className="space-y-4">
+                                {expenses.length === 0 && stats.adminFee === 0 ? <p className="text-gray-500 text-center py-8">ไม่มีรายจ่ายในเดือนนี้</p> : (
+                                    <>
+                                        {expenses.map((exp) => (
+                                            <div key={exp.id} className="flex justify-between items-center py-3 border-b border-gray-50 last:border-0">
+                                                <div><p className="font-medium text-gray-700">{exp.type}</p><p className="text-xs text-gray-400">{exp.date}</p></div>
+                                                <span className="font-semibold text-red-500">-{exp.amount.toLocaleString()}</span>
+                                            </div>
+                                        ))}
+                                        <div className="flex justify-between items-center py-3 border-t border-gray-100 bg-gray-50 -mx-6 px-6 mt-2">
+                                            <div><p className="font-medium text-gray-700">ค่าผู้ดูแล (25%)</p><p className="text-xs text-gray-400">หักอัตโนมัติ</p></div>
+                                            <span className="font-semibold text-yellow-600">-{stats.adminFee.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-4 mt-2">
+                                            <span className="font-bold text-gray-800">รวมจ่ายทั้งสิ้น</span>
+                                            <span className="font-bold text-red-600 text-lg">{(stats.totalExpenses + stats.adminFee).toLocaleString()} บาท</span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const MeterManagement = () => {
+            const [members, setMembers] = useState([]);
+            const [selectedMemberId, setSelectedMemberId] = useState('');
+            const [memberData, setMemberData] = useState(null);
+            const [history, setHistory] = useState([]);
+            const [bills, setBills] = useState([]);
+            const [currentMeter, setCurrentMeter] = useState('');
+            const [currentDate, setCurrentDate] = useState(() => {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            });
+            const [calculation, setCalculation] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [saving, setSaving] = useState(false);
+            const [showBillModal, setShowBillModal] = useState(false);
+            const [billUrl, setBillUrl] = useState(null);
+
+            useEffect(() => { api.getMembers().then(setMembers).catch(console.error); }, []);
+            useEffect(() => { if (selectedMemberId) loadMemberData(selectedMemberId); else resetForm(); }, [selectedMemberId]);
+
+            const resetForm = () => { setMemberData(null); setHistory([]); setCalculation(null); setCurrentMeter(''); setBillUrl(null); };
+
+            const loadMemberData = async (id) => {
+                setLoading(true); setBillUrl(null);
+                try {
+                    const data = await api.getMemberData(id);
+                    setMemberData(data); setHistory(data.history);
+                } catch (error) { alert("ไม่สามารถโหลดข้อมูลสมาชิกได้"); } 
+                finally { setLoading(false); }
+            };
+
+            const loadBillHistory = async () => {
+                if (!selectedMemberId) return;
+                setShowBillModal(true);
+                try { const data = await api.getBillHistory(selectedMemberId); setBills(data); } catch (error) { console.error(error); }
+            };
+
+            const handleCalculate = () => {
+                if (!memberData || !currentMeter) return;
+                const cur = parseInt(currentMeter);
+                const prev = memberData.prevMeter || 0;
+                if (isNaN(cur) || cur < prev) return alert("เลขมิเตอร์ครั้งนี้ต้องมากกว่าครั้งก่อน");
+                
+                const usage = cur - prev;
+                let waterCost = memberData.specialRate ? usage * 8 : (usage <= 50 ? usage * 8 : (50 * 8) + ((usage - 50) * 15));
+                const maintenance = memberData.payMaintenance ? 5 : 0;
+                setCalculation({ usage, waterCost, maintenance, total: waterCost + maintenance });
+            };
+
+            const handleSave = async () => {
+                setSaving(true);
+                try {
+                    const url = await api.saveAndGenerateBill({
+                        memberId: memberData.memberId, name: memberData.name, houseNo: memberData.houseNo,
+                        prevMeter: memberData.prevMeter, currentMeter: parseInt(currentMeter),
+                        prevDate: memberData.prevDate, currentDate: currentDate
+                    });
+                    setBillUrl(url);
+                    loadMemberData(selectedMemberId);
+                    setCalculation(null); setCurrentMeter('');
+                } catch (e) { alert("เกิดข้อผิดพลาดในการบันทึก"); } 
+                finally { setSaving(false); }
+            };
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in">
+                    <div className="lg:col-span-7 space-y-6">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center"><Droplet className="w-6 h-6 text-blue-600 mr-2" />จดมิเตอร์น้ำ</h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">เลือกสมาชิก</label>
+                                    <div className="relative">
+                                        <select className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)}>
+                                            <option value="">-- กรุณาเลือกสมาชิก --</option>
+                                            {members.map(m => <option key={m.memberId} value={m.memberId}>{m.memberId} - {m.name} ({m.houseNo})</option>)}
+                                        </select>
+                                        <User className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                                    </div>
+                                </div>
+                                {memberData ? (
+                                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-100 grid grid-cols-2 gap-4 animate-fade-in">
+                                        <div><p className="text-xs text-blue-600 uppercase font-semibold">ประเภทอัตรา</p><p className="font-medium">{memberData.specialRate ? 'พิเศษ (8 บ.)' : 'ปกติ'}</p></div>
+                                        <div><p className="text-xs text-blue-600 uppercase font-semibold">ค่าบำรุง</p><p className="font-medium">{memberData.payMaintenance ? '5 บาท' : 'ยกเว้น'}</p></div>
+                                        <div><p className="text-xs text-blue-600 uppercase font-semibold">มิเตอร์ก่อนหน้า</p><p className="font-bold text-lg">{memberData.prevMeter}</p></div>
+                                        <div><p className="text-xs text-blue-600 uppercase font-semibold">วันที่จดก่อนหน้า</p><p className="font-medium">{memberData.prevDate || '-'}</p></div>
+                                    </div>
+                                ) : loading && <div className="text-center text-gray-400 p-4">กำลังโหลด...</div>}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">เลขมิเตอร์ครั้งนี้</label><input type="number" className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" value={currentMeter} onChange={(e) => {setCurrentMeter(e.target.value); setCalculation(null);}} disabled={!memberData} /></div>
+                                    <div><label className="block text-sm font-medium text-gray-700 mb-1">วันที่จด</label><input type="date" className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none" value={currentDate} onChange={(e) => setCurrentDate(e.target.value)} disabled={!memberData} /></div>
+                                </div>
+                                <div className="flex gap-3 pt-4 flex-wrap">
+                                    <button onClick={handleCalculate} disabled={!memberData || !currentMeter} className="flex-1 bg-blue-600 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 hover:bg-blue-700"><Calculator className="w-5 h-5 mr-2" />คำนวณ</button>
+                                    {calculation && !billUrl && <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 hover:bg-green-700"><Save className="w-5 h-5 mr-2" />{saving ? '...' : 'บันทึก'}</button>}
+                                    <button onClick={loadBillHistory} disabled={!memberData} className="flex-1 bg-purple-600 text-white py-2.5 px-4 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 hover:bg-purple-700"><FileText className="w-5 h-5 mr-2" />ใบเสร็จ</button>
+                                </div>
+                            </div>
+                            {billUrl && (
+                                <div className="mt-6 bg-green-100 border border-green-200 rounded-xl p-5 flex flex-col items-center text-center">
+                                    <CheckCircle className="w-8 h-8 text-green-600 mb-2" />
+                                    <h3 className="text-lg font-bold text-green-800">บันทึกสำเร็จ</h3>
+                                    <a href={billUrl} target="_blank" className="mt-3 inline-flex items-center px-6 py-2 bg-white text-green-700 font-bold rounded-lg shadow-sm border border-green-200"><FileText className="w-5 h-5 mr-2" />เปิดใบเสร็จ</a>
+                                </div>
+                            )}
+                            {calculation && !billUrl && (
+                                <div className="mt-6 bg-indigo-50 border border-indigo-100 rounded-xl p-5">
+                                    <h3 className="text-lg font-semibold text-indigo-900 mb-3">สรุปยอด</h3>
+                                    <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between"><span className="text-gray-600">ใช้น้ำ</span><span className="font-bold">{calculation.usage} ลบ.ม.</span></div>
+                                        <div className="flex justify-between"><span className="text-gray-600">ค่าน้ำ</span><span className="font-bold">{calculation.waterCost} บาท</span></div>
+                                        <div className="flex justify-between"><span className="text-gray-600">ค่าบำรุง</span><span className="font-bold">{calculation.maintenance} บาท</span></div>
+                                        <div className="border-t border-indigo-200 pt-2 flex justify-between text-base font-bold text-indigo-900"><span>รวม</span><span>{calculation.total} บาท</span></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="lg:col-span-5">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-full flex flex-col">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><HistoryIcon className="w-5 h-5 mr-2" />ประวัติ</h3>
+                            <div className="flex-1 overflow-y-auto space-y-3 max-h-[600px] custom-scrollbar">
+                                {loading ? <div className="text-center py-8">โหลด...</div> : !selectedMemberId || history.length === 0 ? <div className="text-center py-12 text-gray-400">ไม่มีข้อมูล</div> : history.map(r => (
+                                    <div key={r.id} className="bg-white border border-gray-100 p-4 rounded-xl shadow-sm">
+                                        <div className="flex justify-between mb-2"><span className="font-bold">{r.date}</span><span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-sm">{r.totalCost} ฿</span></div>
+                                        <div className="text-xs text-gray-500 flex justify-between"><span>ใช้น้ำ {r.usage} ลบ.ม.</span><span>มิเตอร์ {r.currentMeter}</span></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    {showBillModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+                                <div className="p-4 bg-purple-600 text-white flex justify-between items-center rounded-t-2xl"><h3 className="font-bold">ประวัติใบเสร็จ</h3><button onClick={() => setShowBillModal(false)}><X className="w-5 h-5" /></button></div>
+                                <div className="p-4 overflow-y-auto flex-1 space-y-2">
+                                    {bills.length === 0 ? <p className="text-center text-gray-400">ไม่พบประวัติ</p> : bills.map(b => (
+                                        <div key={b.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border">
+                                            <div><p className="font-medium">{b.date}</p><p className="text-xs text-gray-400">{b.name}</p></div>
+                                            <a href={b.url} target="_blank" className="p-2 bg-white rounded-full text-purple-600 border"><ExternalLink className="w-4 h-4" /></a>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const MemberSettings = ({ onEdit }) => {
+            const [members, setMembers] = useState([]);
+            const [search, setSearch] = useState('');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => { loadMembers(); }, []);
+
+            const loadMembers = () => {
+                setLoading(true);
+                api.getMembers().then(res => {
+                    setMembers(res);
+                    setLoading(false);
+                });
+            };
+
+            const handleDelete = async (id, name) => {
+                if (confirm(`คุณต้องการลบสมาชิก "${name}" ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้`)) {
+                    try {
+                        await api.deleteMember(id);
+                        alert('ลบสมาชิกสำเร็จ');
+                        loadMembers();
+                    } catch (e) {
+                        alert('เกิดข้อผิดพลาดในการลบ: ' + e.message);
+                    }
+                }
+            };
+
+            const filtered = members.filter(m => 
+                m.name.includes(search) || 
+                m.memberId.toLowerCase().includes(search.toLowerCase()) || 
+                m.houseNo.includes(search)
+            );
+
+            return (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-fade-in">
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <h2 className="text-xl font-bold text-gray-800 flex items-center">
+                            <Settings className="w-6 h-6 mr-2 text-gray-600" /> ตั้งค่าสมาชิก
+                        </h2>
+                        <div className="relative w-full md:w-64">
+                            <input 
+                                type="text" 
+                                placeholder="ค้นหา ชื่อ, รหัส, บ้านเลขที่..." 
+                                className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                            />
+                            <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-600 text-sm uppercase tracking-wider border-b">
+                                    <th className="p-4 font-semibold">รหัส</th>
+                                    <th className="p-4 font-semibold">ชื่อ-นามสกุล</th>
+                                    <th className="p-4 font-semibold">บ้านเลขที่</th>
+                                    <th className="p-4 font-semibold text-center">อัตราพิเศษ</th>
+                                    <th className="p-4 font-semibold text-center">ค่าบำรุง</th>
+                                    <th className="p-4 font-semibold text-right">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {loading ? (
+                                    <tr><td colSpan="6" className="p-8 text-center text-gray-400">กำลังโหลด...</td></tr>
+                                ) : filtered.length === 0 ? (
+                                    <tr><td colSpan="6" className="p-8 text-center text-gray-400">ไม่พบข้อมูลสมาชิก</td></tr>
+                                ) : filtered.map(m => (
+                                    <tr key={m.memberId} className="hover:bg-gray-50 transition">
+                                        <td className="p-4 font-medium text-gray-800">{m.memberId}</td>
+                                        <td className="p-4 text-gray-700">{m.name}</td>
+                                        <td className="p-4 text-gray-600">{m.houseNo}</td>
+                                        <td className="p-4 text-center">
+                                            {m.specialRate ? <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">ใช่</span> : <span className="text-gray-400">-</span>}
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            {m.payMaintenance ? <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">จ่าย</span> : <span className="text-gray-400">-</span>}
+                                        </td>
+                                        <td className="p-4 text-right space-x-2">
+                                            <button 
+                                                onClick={() => onEdit(m)}
+                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" 
+                                                title="แก้ไข"
+                                            >
+                                                <Edit className="w-4 h-4" />
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDelete(m.memberId, m.name)}
+                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" 
+                                                title="ลบ"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const MemberModal = ({ isOpen, onClose, onSuccess, editMember = null }) => {
+            const [formData, setFormData] = useState({ memberId: '', name: '', houseNo: '', specialRate: false, payMaintenance: false });
+            const [loading, setLoading] = useState(false);
+            
+            useEffect(() => {
+                if (editMember) {
+                    setFormData({
+                        memberId: editMember.memberId,
+                        name: editMember.name,
+                        houseNo: editMember.houseNo,
+                        specialRate: editMember.specialRate,
+                        payMaintenance: editMember.payMaintenance
+                    });
+                } else {
+                    setFormData({ memberId: '', name: '', houseNo: '', specialRate: false, payMaintenance: false });
+                }
+            }, [editMember, isOpen]);
+
+            if (!isOpen) return null;
+            
+            const handleSubmit = async (e) => {
+                e.preventDefault(); setLoading(true);
+                try { 
+                    if (editMember) {
+                        await api.updateMember(formData);
+                    } else {
+                        await api.addMember(formData); 
+                    }
+                    onSuccess(); onClose(); 
+                } catch (e) { alert('Error: ' + e.message); } 
+                finally { setLoading(false); }
+            };
+            
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-up">
+                        <div className={`p-4 text-white flex justify-between rounded-t-2xl ${editMember ? 'bg-orange-500' : 'bg-blue-600'}`}>
+                            <h3 className="font-bold flex items-center">
+                                {editMember ? <Edit className="mr-2 w-5 h-5"/> : <UserPlus className="mr-2 w-5 h-5"/>} 
+                                {editMember ? 'แก้ไขข้อมูลสมาชิก' : 'เพิ่มสมาชิกใหม่'}
+                            </h3>
+                            <button onClick={onClose}><X /></button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                            <div>
+                                <label className="text-sm text-gray-600 block mb-1">รหัสสมาชิก</label>
+                                <input required className="w-full p-2 border rounded bg-gray-50" placeholder="รหัสสมาชิก (Mxxx)" value={formData.memberId} onChange={e => setFormData({...formData, memberId: e.target.value})} disabled={!!editMember} />
+                                {editMember && <p className="text-xs text-gray-400 mt-1">* รหัสสมาชิกไม่สามารถแก้ไขได้</p>}
+                            </div>
+                            <div>
+                                <label className="text-sm text-gray-600 block mb-1">ชื่อ-นามสกุล</label>
+                                <input required className="w-full p-2 border rounded" placeholder="ชื่อ-นามสกุล" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-sm text-gray-600 block mb-1">บ้านเลขที่</label>
+                                <input required className="w-full p-2 border rounded" placeholder="บ้านเลขที่" value={formData.houseNo} onChange={e => setFormData({...formData, houseNo: e.target.value})} />
+                            </div>
+                            <div className="space-y-2 pt-2">
+                                <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
+                                    <input type="checkbox" className="w-5 h-5 text-blue-600" checked={formData.specialRate} onChange={e => setFormData({...formData, specialRate: e.target.checked})} /> 
+                                    <span>อัตราค่าน้ำพิเศษ (เหมาจ่าย 8 บาท)</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-gray-50 rounded">
+                                    <input type="checkbox" className="w-5 h-5 text-blue-600" checked={formData.payMaintenance} onChange={e => setFormData({...formData, payMaintenance: e.target.checked})} /> 
+                                    <span>เก็บค่าบำรุงรักษา (5 บาท)</span>
+                                </label>
+                            </div>
+                            <button type="submit" disabled={loading} className={`w-full text-white p-2 rounded transition ${editMember ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                {loading ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const ExpenseModal = ({ isOpen, onClose, onSuccess }) => {
+            const TYPES = ["ค่าไฟฟ้าโรงสูบน้ำดิบ", "ค่าไฟฟ้าโรงจ่ายน้ำดี", "ค่าไฟฟ้ากองทุนประปาหมู่บ้าน", "ค่าของร้านลุงแพง", "ลุงใยเบิก", "ค่าซ่อม", "ค่าอุปกรณ์", "ค่าช่าง", "อื่นๆ"];
+            const [items, setItems] = useState([{ date: new Date().toISOString().split('T')[0], type: TYPES[0], amount: '' }]);
+            const [loading, setLoading] = useState(false);
+            if (!isOpen) return null;
+            const handleSubmit = async () => {
+                const valid = items.filter(i => i.amount > 0);
+                if (!valid.length) return alert("ระบุข้อมูล");
+                setLoading(true);
+                try { await api.addExpenses(valid.map(i => ({...i, amount: parseFloat(i.amount)}))); onSuccess(); onClose(); setItems([{ date: new Date().toISOString().split('T')[0], type: TYPES[0], amount: '' }]); } catch (e) { alert('Error'); } finally { setLoading(false); }
+            };
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                        <div className="p-4 bg-red-600 text-white flex justify-between rounded-t-2xl"><h3 className="font-bold flex items-center"><Receipt className="mr-2 w-5 h-5"/> รายจ่าย</h3><button onClick={onClose}><X /></button></div>
+                        <div className="p-6 overflow-y-auto flex-1 space-y-3">
+                            {items.map((item, idx) => (
+                                <div key={idx} className="flex gap-2 items-end bg-gray-50 p-2 rounded border">
+                                    <div className="flex-1"><label className="text-xs">วันที่</label><input type="date" className="w-full p-1 border rounded" value={item.date} onChange={e => {const n=[...items];n[idx].date=e.target.value;setItems(n)}}/></div>
+                                    <div className="flex-2"><label className="text-xs">ประเภท</label><select className="w-full p-1 border rounded" value={item.type} onChange={e => {const n=[...items];n[idx].type=e.target.value;setItems(n)}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+                                    <div className="flex-1"><label className="text-xs">บาท</label><input type="number" className="w-full p-1 border rounded" value={item.amount} onChange={e => {const n=[...items];n[idx].amount=e.target.value;setItems(n)}}/></div>
+                                    {items.length > 1 && <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 /></button>}
+                                </div>
+                            ))}
+                            <button onClick={() => setItems([...items, { date: new Date().toISOString().split('T')[0], type: TYPES[0], amount: '' }])} className="text-blue-600 text-sm flex items-center"><Plus className="w-4 h-4 mr-1"/> เพิ่มรายการ</button>
+                        </div>
+                        <div className="p-4 border-t"><button onClick={handleSubmit} disabled={loading} className="w-full bg-red-600 text-white p-2 rounded hover:bg-red-700">{loading ? '...' : 'บันทึกทั้งหมด'}</button></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP ---
+
+        const App = () => {
+            const [view, setView] = useState('dashboard');
+            const [sidebarOpen, setSidebarOpen] = useState(false);
+            const [refreshKey, setRefreshKey] = useState(0);
+            
+            // Member Modal State
+            const [showMemberModal, setShowMemberModal] = useState(false);
+            const [editingMember, setEditingMember] = useState(null);
+            
+            const [showExpenseModal, setShowExpenseModal] = useState(false);
+
+            const NavBtn = ({ active, onClick, icon, label }) => (
+                <button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition ${active ? 'bg-white/20 text-white shadow-sm' : 'text-white/70 hover:bg-white/10'}`}>{icon}<span>{label}</span></button>
+            );
+
+            const openAddMember = () => {
+                setEditingMember(null);
+                setShowMemberModal(true);
+                setSidebarOpen(false);
+            };
+
+            const openEditMember = (member) => {
+                setEditingMember(member);
+                setShowMemberModal(true);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50 flex">
+                    {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden" onClick={() => setSidebarOpen(false)}></div>}
+                    <aside className={`fixed md:sticky top-0 left-0 z-30 h-screen w-64 bg-gradient-to-b from-blue-700 to-indigo-800 text-white shadow-xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+                        <div className="p-6 border-b border-white/10 flex justify-between items-center"><h1 className="text-xl font-bold">ประปาหมู่บ้าน</h1><button onClick={() => setSidebarOpen(false)} className="md:hidden"><X /></button></div>
+                        <nav className="p-4 space-y-2">
+                            <NavBtn active={view === 'dashboard'} onClick={() => {setView('dashboard'); setSidebarOpen(false)}} icon={<LayoutDashboard />} label="แดชบอร์ด" />
+                            <NavBtn active={view === 'meter-management'} onClick={() => {setView('meter-management'); setSidebarOpen(false)}} icon={<Droplet />} label="จัดการมิเตอร์" />
+                            <NavBtn active={view === 'member-settings'} onClick={() => {setView('member-settings'); setSidebarOpen(false)}} icon={<Settings />} label="ตั้งค่าสมาชิก" />
+                            
+                            <div className="pt-6 pb-2 px-2"><p className="text-xs font-semibold text-white/40 uppercase">เมนูลัด</p></div>
+                            <button onClick={openAddMember} className="w-full flex items-center space-x-3 px-4 py-2 text-white/70 hover:bg-white/10 rounded-lg"><UserPlus className="w-5 h-5"/><span>เพิ่มสมาชิก</span></button>
+                            <button onClick={() => {setShowExpenseModal(true); setSidebarOpen(false)}} className="w-full flex items-center space-x-3 px-4 py-2 text-white/70 hover:bg-white/10 rounded-lg"><Receipt className="w-5 h-5"/><span>บันทึกรายจ่าย</span></button>
+                        </nav>
+                        <div className="absolute bottom-0 w-full p-4 bg-blue-800/30 text-xs text-white/60">
+                            <div className="flex items-center mb-2"><LogOut className="w-3 h-3 mr-2"/> หมู่บ้านเผ่าไทย</div>
+                            <div className="flex items-center px-2 py-1 rounded bg-black/20">
+                                {isGAS ? <><Wifi className="w-3 h-3 mr-2 text-green-400"/> เชื่อมต่อจริง (GAS)</> : isExternalAPI ? <><CloudLightning className="w-3 h-3 mr-2 text-blue-400"/> Cloud API Mode</> : <><WifiOff className="w-3 h-3 mr-2 text-yellow-400"/> Mock Data</>}
+                            </div>
+                        </div>
+                    </aside>
+                    <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                        <header className="bg-white shadow-sm border-b p-4 md:hidden flex justify-between"><button onClick={() => setSidebarOpen(true)}><Menu /></button><span className="font-bold">ระบบจดมิเตอร์</span><div className="w-6"></div></header>
+                        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                            <div className="max-w-7xl mx-auto">
+                                {view === 'dashboard' && <Dashboard key={refreshKey} />}
+                                {view === 'meter-management' && <MeterManagement key={refreshKey} />}
+                                {view === 'member-settings' && <MemberSettings key={refreshKey} onEdit={openEditMember} />}
+                            </div>
+                        </div>
+                    </main>
+                    <MemberModal 
+                        isOpen={showMemberModal} 
+                        onClose={() => setShowMemberModal(false)} 
+                        editMember={editingMember}
+                        onSuccess={() => setRefreshKey(k => k + 1)} 
+                    />
+                    <ExpenseModal isOpen={showExpenseModal} onClose={() => setShowExpenseModal(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
